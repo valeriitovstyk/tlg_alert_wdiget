@@ -213,9 +213,38 @@ def analyze(alerts: dict, threats: dict, messages=None, now=None) -> dict:
 def ago_txt(m):
     return "щойно" if m <= 0 else f"{m} хв тому"
 
+STRATEGIC_SHORT = {"o": "Орєшнік", "k": "Кинджал", "t": "Ту-95", "c": "Калібр"}
+
+def summary_line(state: dict) -> str:
+    """Напр.: «🔴 Київ 9🛩 ~23хв 🚀4 ⚠️ · 🟢 Львів (2🛩)»."""
+    parts = []
+    for city, c in zip(CITIES, state["c"]):
+        a, _, d, _, mi, _, _, bal = c[:8]
+        eta = c[8] if len(c) > 8 else -1
+        boom = c[9] if len(c) > 9 else -1
+        bits = []
+        if d:
+            bits.append(f"{d}🛩" + (f" ~{eta}хв" if eta > 0 else " поруч" if eta == 0 else ""))
+        if mi:
+            bits.append(f"🚀{mi}")
+        if bal:
+            bits.append("⚠️балістика")
+        if boom >= 0:
+            bits.append("💥")
+        if a:
+            parts.append(f"🔴 {city['name']}" + (" " + " ".join(bits) if bits else ""))
+        else:
+            parts.append(f"🟢 {city['name']}" + (f" ({' '.join(bits)})" if bits else ""))
+    line = " · ".join(parts)
+    strat = state.get("s") or []
+    if strat:
+        line += " · ⚠️" + ", ".join(STRATEGIC_SHORT[c] for c, _ in strat)
+    return f"<b>{line}</b>"
+
 def fmt_text(state: dict) -> str:
-    """Текстова версія для клієнтів без віджетів."""
-    lines = []
+    """Текстова версія для клієнтів без віджетів.
+    Перший рядок — короткий підсумок: його показують прев'ю чату й віджет «Чати» на Android."""
+    lines = [summary_line(state), ""]
     for city, c in zip(CITIES, state["c"]):
         a, since, d, dn, mi, mn, kab, bal = c[:8]
         eta = c[8] if len(c) > 8 else -1
