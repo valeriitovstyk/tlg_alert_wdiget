@@ -32,6 +32,7 @@ jobs:
           MODE: ${{ vars.MODE || 'auto' }}
           RUN_FOR_S: "21000"
           STATE_FILE: bot/state.json
+          TZ: Europe/Kyiv
         run: python3 bot/bot.py
       - name: Save state
         if: always()
