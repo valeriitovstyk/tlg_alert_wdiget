@@ -181,10 +181,8 @@ def fmt_text(state: dict) -> str:
                 extra.append("загроза балістики")
             lines.append(f"🟢 <b>{city['name']}</b> — тривоги немає" + (f" (але: {', '.join(extra)})" if extra else ""))
         lines.append("")
-    g = state["g"]
-    lines.append(f"Україна: {g[0]} шахедів · {g[1]} ракет · {g[2]} балістичних" + (" · МіГ-31К у повітрі" if g[3] else ""))
-    lines.append(f"Оновлено {time.strftime('%H:%M:%S', time.localtime(state['t']))}")
-    lines.append(f"<i>{ATTRIBUTION}</i>")
+    # Умови NEPTUN вимагають видиме посилання біля даних: воно в рядку «Оновлено».
+    lines.append(f'<a href="https://neptun.in.ua/">Оновлено {time.strftime("%H:%M:%S", time.localtime(state["t"]))}</a>')
     return "\n".join(lines)
 
 # ---------------------------------------------------------------- мережа
