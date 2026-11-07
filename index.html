@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Тривога">
+<meta name="theme-color" content="#0b0d10">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Тривога · Київ / Львів</title>
+<style>
+  :root {
+    --bg: #0b0d10; --card: #15181d; --text: #f2f4f7; --muted: #8b93a1;
+    --ok: #1f9d55; --ok-bg: #0f2a1b; --alert: #e5383b; --alert-bg: #2e0f11;
+    --warn: #f4a259; --line: #252a31;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { padding: calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 14px); }
+  .wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .city { border-radius: 22px; padding: 20px 20px 18px; background: var(--card); border: 2px solid var(--line); }
+  .city.ok { background: var(--ok-bg); border-color: var(--ok); }
+  .city.alert { background: var(--alert-bg); border-color: var(--alert); }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .name { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
+  .since { font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .status { font-size: 40px; font-weight: 900; margin: 6px 0 2px; line-height: 1.05; }
+  .ok .status { color: #4ade80; }
+  .alert .status { color: #ff6b6e; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+  .tile { background: rgba(255,255,255,0.05); border-radius: 14px; padding: 10px 10px 9px; }
+  .tile .n { font-size: 38px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 13px; color: var(--muted); margin-top: 5px; line-height: 1.2; }
+  .tile .s { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .tile.hot .n { color: #ff6b6e; }
+  .tile.zero .n { color: #4b5563; }
+  .ballistic { margin-top: 8px; border-radius: 14px; padding: 12px 14px; font-size: 18px; font-weight: 800;
+    background: rgba(255,255,255,0.05); color: var(--muted); }
+  .ballistic.on { background: var(--alert); color: #fff; }
+  .note { font-size: 14px; color: var(--warn); margin-top: 10px; }
+  .global { font-size: 14px; color: var(--muted); background: var(--card); border-radius: 14px; padding: 10px 14px; }
+  .global b { color: var(--text); }
+  .global.mig { background: #3a2a0d; color: #ffd8a8; }
+  footer { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 0 4px; }
+  footer a { color: var(--muted); }
+  .err { color: var(--warn); }
+  .stale { opacity: .55; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="kyiv" class="city"><div class="head"><div class="name">Київ</div></div><div class="status">…</div></div>
+  <div id="lviv" class="city"><div class="head"><div class="name">Львів</div></div><div class="status">…</div></div>
+  <div id="global" class="global">Завантаження…</div>
+  <footer>
+    <div id="upd">—</div>
+    Дані: Карта повітряних тривог — <a href="https://neptun.in.ua/" target="_blank" rel="noopener">NEPTUN</a> (neptun.in.ua).
+    Це агрегатор, а не офіційна система оповіщення: дані можуть запізнюватися або бути неточними.
+    Орієнтуйтеся на офіційні сигнали тривоги та застосунок «Повітряна тривога».
+  </footer>
+</div>
+
+<script>
+const API = 'https://neptun.in.ua';
+const POLL_MS = 10000;
+
+// Міста. near = радіус "над містом / поруч", км.
+const CITIES = [
+  { id: 'kyiv', name: 'Київ', lat: 50.4501, lon: 30.5234, near: 60,
+    alertMatch: e => norm(e.key) === 'м. київ' || norm(e.name) === 'м. київ' || norm(e.name) === 'київ',
+    regionMatch: r => /(^|\s)м\.?\s*київ$/.test(norm(r)) || norm(r) === 'київ' || /київськ/.test(norm(r)) },
+  { id: 'lviv', name: 'Львів', lat: 49.8397, lon: 24.0297, near: 60,
+    alertMatch: e => /львів/.test(norm(e.key)) || /львів/.test(norm(e.name)),
+    regionMatch: r => /львів/.test(norm(r)) },
+];
+
+// Наскільки далеко вважаємо, що ціль "летить на місто", і допуск по куту курсу.
+const HEADING_RANGE = { drone: 450, missile: 1200 };
+const HEADING_TOL_DEG = 25;
+
+function norm(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+const rad = d => d * Math.PI / 180;
+function distKm(a, b, c, d) {
+  const p1 = rad(a), p2 = rad(c), dp = rad(c - a), dl = rad(d - b);
+  const h = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+function bearingDeg(a, b, c, d) {
+  const p1 = rad(a), p2 = rad(c), dl = rad(d - b);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const angDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+
+function kindOf(t) {
+  if (t.type === 'uav') return 'drone';
+  if (t.type === 'missile') return 'missile';
+  if (t.type === 'ballistic') return 'ballistic';
+  if (t.type === 'mig31k') return 'mig31k';
+  if (t.type === 'kab') return 'kab';
+  return null; // recon, unknown
+}
+const sizeOf = t => (Number(t.count) > 0 ? Number(t.count) : 1);
+const headingOf = t => (typeof t.heading === 'number' ? t.heading
+  : (t.velocity && typeof t.velocity.bearingDeg === 'number' ? t.velocity.bearingDeg : null));
+
+// Відношення цілі до міста: 'near' (поруч), 'toward' (курсом на), 'region' (в області, без точки) або null.
+function relation(t, city) {
+  const hasPoint = !t.areaOnly && typeof t.lat === 'number' && typeof t.lon === 'number';
+  if (!hasPoint) return city.regionMatch(t.region) ? 'region' : null;
+  const d = distKm(t.lat, t.lon, city.lat, city.lon);
+  if (d <= city.near) return 'near';
+  const k = kindOf(t);
+  const range = k === 'drone' ? HEADING_RANGE.drone : HEADING_RANGE.missile;
+  const h = headingOf(t);
+  if (h !== null && d <= range && angDiff(h, bearingDeg(t.lat, t.lon, city.lat, city.lon)) <= HEADING_TOL_DEG) return 'toward';
+  if (city.regionMatch(t.region)) return 'region';
+  return null;
+}
+
+function analyze(alertsPayload, threatsPayload) {
+  const oblasts = (alertsPayload && alertsPayload.oblasts) || [];
+  const raions = (alertsPayload && alertsPayload.raions) || [];
+  const threats = ((threatsPayload && threatsPayload.threats) || [])
+    .filter(t => t && t.status !== 'resolved' && t.status !== 'stale');
+
+  const global = { drones: 0, missiles: 0, ballistic: 0, mig: false };
+  for (const t of threats) {
+    const k = kindOf(t);
+    if (k === 'mig31k') global.mig = true;
+    if (t.advisory) continue;
+    if (k === 'drone') global.drones += sizeOf(t);
+    else if (k === 'missile') global.missiles += sizeOf(t);
+    else if (k === 'ballistic') global.ballistic += sizeOf(t);
+  }
+
+  const cities = CITIES.map(city => {
+    const entry = oblasts.find(city.alertMatch) || raions.find(city.alertMatch);
+    const r = { id: city.id, name: city.name, alert: !!entry, since: entry && entry.since ? new Date(entry.since) : null,
+      drones: 0, dronesNear: 0, missiles: 0, missilesNear: 0, ballistic: false, kab: 0 };
+    for (const t of threats) {
+      if (t.advisory) continue;
+      const k = kindOf(t); if (!k || k === 'mig31k') continue;
+      const rel = relation(t, city); if (!rel) continue;
+      const n = sizeOf(t);
+      if (k === 'drone') { r.drones += n; if (rel === 'near') r.dronesNear += n; }
+      else if (k === 'missile') { r.missiles += n; if (rel === 'near') r.missilesNear += n; }
+      else if (k === 'ballistic') r.ballistic = true;
+      else if (k === 'kab') r.kab += n;
+    }
+    return r;
+  });
+  return { cities, global };
+}
+
+function fmtDur(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  return m < 60 ? `${m} хв` : `${Math.floor(m/60)} год ${m % 60} хв`;
+}
+const fmtTime = d => d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+
+function tile(n, label, sub) {
+  const cls = n > 0 ? 'tile hot' : 'tile zero';
+  return `<div class="${cls}"><div class="n">${n}</div><div class="l">${label}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+}
+
+function renderCity(c, global) {
+  const el = document.getElementById(c.id);
+  el.className = 'city ' + (c.alert ? 'alert' : 'ok');
+  const since = c.alert && c.since ? `з ${fmtTime(c.since)}<br>${fmtDur(Date.now() - c.since)}` : '';
+  let html = `<div class="head"><div class="name">${c.name}</div><div class="since">${since}</div></div>`;
+  if (c.alert) {
+    html += `<div class="status">ТРИВОГА</div>
+      <div class="grid">
+        ${tile(c.drones, 'шахедів курсом на місто', c.dronesNear ? `${c.dronesNear} поруч` : '')}
+        ${tile(c.missiles, 'ракет курсом на місто', c.missilesNear ? `${c.missilesNear} поруч` : '')}
+        ${tile(c.kab, 'КАБів в області', '')}
+      </div>
+      <div class="ballistic ${c.ballistic || global.mig ? 'on' : ''}">${
+        c.ballistic ? '⚠️ Загроза балістики' : global.mig ? '⚠️ МіГ-31К у повітрі — загроза «Кинджалів»' : 'Балістики не видно'}</div>`;
+  } else {
+    html += `<div class="status">Тривоги немає</div>`;
+    const bits = [];
+    if (c.drones) bits.push(`${c.drones} шахед(ів) курсом на місто`);
+    if (c.missiles) bits.push(`${c.missiles} ракет(и) курсом на місто`);
+    if (c.ballistic) bits.push('загроза балістики');
+    if (bits.length) html += `<div class="note">Але: ${bits.join(', ')}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderGlobal(g) {
+  const el = document.getElementById('global');
+  el.className = 'global' + (g.mig ? ' mig' : '');
+  el.innerHTML = `По всій Україні: <b>${g.drones}</b> шахедів · <b>${g.missiles}</b> ракет · <b>${g.ballistic}</b> балістичних`
+    + (g.mig ? ' · <b>МіГ-31К у повітрі</b>' : '');
+}
+
+let lastOk = null;
+function render(data) {
+  for (const c of data.cities) renderCity(c, data.global);
+  renderGlobal(data.global);
+}
+function setUpd(err) {
+  const el = document.getElementById('upd');
+  const t = lastOk ? `Оновлено о ${lastOk.toLocaleTimeString('uk-UA')}` : 'Ще не оновлено';
+  el.innerHTML = err ? `<span class="err">Немає зв'язку з NEPTUN (${err}). ${t}</span>` : t;
+  document.querySelector('.wrap').classList.toggle('stale', !!err && (!lastOk || Date.now() - lastOk > 60000));
+}
+
+async function getJSON(path) {
+  const r = await fetch(API + path, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+let lastData = null;
+async function tick() {
+  if (document.hidden) return;
+  try {
+    const [alerts, threats] = await Promise.all([getJSON('/api/v1/alerts'), getJSON('/api/v1/threats')]);
+    lastData = analyze(alerts, threats);
+    lastOk = new Date();
+    render(lastData);
+    setUpd(null);
+  } catch (e) {
+    setUpd(e.message || 'помилка');
+  }
+}
+
+// ?demo — показати, як виглядає тривога, на вигаданих даних.
+if (location.search.includes('demo')) {
+  const now = Date.now();
+  lastData = analyze(
+    { oblasts: [{ key: 'м. київ', name: 'м. Київ', since: new Date(now - 47*60000).toISOString() }] },
+    { threats: [
+      { id: 1, type: 'uav', lat: 51.2, lon: 31.9, heading: 230, count: 6, status: 'active' },
+      { id: 2, type: 'uav', lat: 50.55, lon: 30.7, heading: 200, count: 2, status: 'active' },
+      { id: 3, type: 'missile', lat: 48.5, lon: 33.0, heading: 320, count: 4, status: 'active' },
+      { id: 4, type: 'uav', lat: 47.0, lon: 35.0, heading: 90, count: 9, status: 'active' },
+      { id: 5, type: 'uav', lat: 50.3, lon: 26.0, heading: 260, count: 3, status: 'active' },
+      { id: 6, type: 'mig31k', lat: 54, lon: 37, advisory: true, status: 'active' },
+    ] });
+  lastOk = new Date(); render(lastData); setUpd(null);
+} else {
+  tick();
+  setInterval(tick, POLL_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+}
+// Хвилини тривоги рахуються навіть між запитами.
+setInterval(() => { if (lastData) render(lastData); }, 30000);
+
+if (typeof module !== 'undefined') module.exports = { analyze };
+</script>
+</body>
+</html>
