@@ -15,8 +15,8 @@
 <style>
   :root {
     --bg: #0b0d10; --card: #15181d; --text: #f2f4f7; --muted: #8b93a1;
-    --ok: #1f9d55; --ok-bg: #0f2a1b; --alert: #e5383b; --alert-bg: #2e0f11;
-    --warn: #f4a259; --line: #252a31;
+    --ok: #209c05; --ok-bg: #0f2608; --alert: #ff0a0a; --alert-bg: #330404;
+    --warn: #f2ce02; --stale: #ebff0a; --ok-text: #85e62c; --line: #252a31;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
@@ -30,25 +30,25 @@
   .name { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
   .since { font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
   .status { font-size: 40px; font-weight: 900; margin: 6px 0 2px; line-height: 1.05; }
-  .ok .status { color: #4ade80; }
-  .alert .status { color: #ff6b6e; }
+  .ok .status { color: var(--ok-text); }
+  .alert .status { color: var(--alert); }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
   .tile { background: rgba(255,255,255,0.05); border-radius: 14px; padding: 10px 10px 9px; }
   .tile .n { font-size: 38px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
   .tile .l { font-size: 13px; color: var(--muted); margin-top: 5px; line-height: 1.2; }
   .tile .s { font-size: 12px; color: var(--muted); margin-top: 3px; }
-  .tile.hot .n { color: #ff6b6e; }
+  .tile.hot .n { color: var(--alert); }
   .tile.zero .n { color: #4b5563; }
   .ballistic { margin-top: 8px; border-radius: 14px; padding: 12px 14px; font-size: 18px; font-weight: 800;
     background: rgba(255,255,255,0.05); color: var(--muted); }
   .ballistic.on { background: var(--alert); color: #fff; }
-  .note { font-size: 14px; color: var(--warn); margin-top: 10px; }
+  .note { display: inline-block; font-size: 14px; font-weight: 700; color: #1a1a1a; background: var(--warn); border-radius: 10px; padding: 4px 10px; margin-top: 10px; }
   .global { font-size: 14px; color: var(--muted); background: var(--card); border-radius: 14px; padding: 10px 14px; }
   .global b { color: var(--text); }
-  .global.mig { background: #3a2a0d; color: #ffd8a8; }
+  .global.mig { background: var(--warn); color: #1a1a1a; } .global.mig b { color: #1a1a1a; }
   footer { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 0 4px; }
   footer a { color: var(--muted); }
-  .err { color: var(--warn); }
+  .err { color: var(--stale); }
   .stale { opacity: .55; }
 </style>
 </head>
