@@ -1,0 +1,42 @@
+name: alert-bot
+
+# Бот працює безперервно: кожен запуск живе ~5 год 50 хв, а наступний (раз на 4 год)
+# стоїть у черзі й стартує одразу після попереднього.
+on:
+  schedule:
+    - cron: "7 */4 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: alert-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_IDS: ${{ vars.CHAT_IDS }}
+          BOT_API: ${{ vars.BOT_API || 'https://api.telegram.org' }}
+          TEST_ENV: ${{ vars.TEST_ENV }}
+          MODE: ${{ vars.MODE || 'auto' }}
+          RUN_FOR_S: "21000"
+          STATE_FILE: bot/state.json
+        run: python3 bot/bot.py
+      - name: Save state
+        if: always()
+        run: |
+          git config user.name "alert-bot"
+          git config user.email "alert-bot@users.noreply.github.com"
+          git add bot/state.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "bot state" && git pull --rebase -q && git push -q)
