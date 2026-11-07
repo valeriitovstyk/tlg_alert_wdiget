@@ -14,11 +14,11 @@ body{color-scheme:light dark;margin:0;padding:10px 12px max(12px,env(safe-area-i
 .l{font-size:12px;color:var(--tg-theme-hint-color)}
 .b{margin-top:6px;border-radius:10px;padding:7px 9px;font-weight:800;font-size:14px;background:rgba(127,127,127,.12);color:var(--tg-theme-hint-color)}
 .b.o{background:#ff0a0a;color:#fff}
-.w{display:inline-block;background:#f2ce02;color:#1a1a1a;font-size:13px;font-weight:700;border-radius:8px;padding:2px 8px;margin-top:4px}
+.w{display:inline-block;margin-bottom:8px;background:#f2ce02;color:#1a1a1a;font-size:13px;font-weight:700;border-radius:8px;padding:2px 8px;margin-top:4px}
 .o2{background:#ebff0a;color:#1a1a1a;border-radius:6px;padding:0 5px}
 .f a{color:var(--tg-theme-link-color)}
 </style>
-<div id="k"></div><div id="l"></div><div class="f" id="g"></div><div class="f" id="u"></div>
+<div id="k"></div><div id="l"></div><div class="w" id="x" style="display:none"></div><div class="f" id="u"></div>
 <div class="f">Дані: <a href="https://neptun.in.ua/">NEPTUN</a>. Не офіційне оповіщення.</div>
 <script>
 const TW=window.TelegramWidget,$=i=>document.getElementById(i),N=['Київ','Львів'];
@@ -29,18 +29,18 @@ const hm=t=>new Date(t*1e3).toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2
 const tl=(v,l)=>'<div class="t"><div class="v '+(v?'x':'z')+'">'+v+'</div><div class="l">'+l+'</div></div>';
 function city(el,n,c,mig){
  if(!c){el.className='c';el.innerHTML='<div class="n">'+n+'</div><div class="m">немає даних</div>';return}
- const[a,since,d,dn,mi,mn,kab,bal]=c;
+ const[a,since,d,dn,mi,mn,kab,bal,eta=-1,bm=-1]=c,ag=m=>m>0?m+' хв тому':'щойно';
  el.className='c'+(a?' a':'');
  let h='<div class="h"><div class="n">'+n+'</div><div class="m">'+(a&&since?'з '+hm(since)+' · '+ago(since):'')+'</div></div>';
  if(a){h+='<div class="s">ТРИВОГА</div><div class="g">'+tl(d,'шахедів курсом'+(dn?' · '+dn+' поруч':''))+tl(mi,'ракет курсом'+(mn?' · '+mn+' поруч':''))+tl(kab,'КАБів')+'</div>'
-  +'<div class="b'+(bal||mig?' o':'')+'">'+(bal?'⚠️ Загроза балістики':mig?'⚠️ МіГ-31К у повітрі':'Балістики не видно')+'</div>'}
- else{h+='<div class="s">Тривоги немає</div>';const x=[];if(d)x.push(d+' шахед. курсом');if(mi)x.push(mi+' ракет курсом');if(bal)x.push('загроза балістики');if(x.length)h+='<div class="w">Але: '+x.join(', ')+'</div>'}
- el.innerHTML=h}
+  +(eta>0?'<div class="m">⏱ найближчий шахед ~'+eta+' хв</div>':'')+'<div class="b'+(bal||mig?' o':'')+'">'+(bal?'⚠️ Загроза балістики':mig?'⚠️ МіГ-31К у повітрі':'Балістики не видно')+'</div>'}
+ else{h+='<div class="s">Тривоги немає</div>';const x=[];if(d)x.push(d+' шахед. курсом'+(eta>0?' ~'+eta+' хв':eta==0?', поруч':''));if(mi)x.push(mi+' ракет курсом');if(bal)x.push('загроза балістики');if(x.length)h+='<div class="w">Але: '+x.join(', ')+'</div>'}
+ if(bm>=0)h+='<div class="m">💥 вибухи / ППО, '+ag(bm)+' (канали)</div>';el.innerHTML=h}
 function draw(){
  const c=S&&S.c||[],g=S&&S.g||[0,0,0,0];
  city($('k'),N[0],c[0],g[3]);city($('l'),N[1],c[1],g[3]);
- $('g').textContent=S?'Україна: '+g[0]+' шахедів · '+g[1]+' ракет · '+g[2]+' балістичних'+(g[3]?' · МіГ-31К у повітрі':''):'';
- const old=S&&Date.now()/1e3-S.t>180;
+ const L={o:'Орєшнік',k:'Кинджали',t:'Ту-95/160/22',c:'Калібри'},st=S&&S.s||[];$('x').style.display=st.length?'block':'none';$('x').textContent='⚠️ З каналів: '+st.map(z=>L[z[0]]+' ('+(z[1]>0?z[1]+' хв':'щойно')+')').join(', ');
+  const old=S&&Date.now()/1e3-S.t>180;
  $('u').innerHTML=S?(old?'<span class="o2">Дані застарілі</span> ':'')+'оновлено о '+hm(S.t)+(TW&&TW.isForward?' (копія)':''):'Чекаю на дані від бота…'}
 rd();draw();
 if(TW){TW.onEvent('publicDataChanged',()=>{rd();draw()});TW.watchPublicData&&TW.watchPublicData();TW.ready&&TW.ready()}

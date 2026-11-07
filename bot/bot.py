@@ -110,13 +110,57 @@ def parse_since(s):
     except ValueError:
         return 0
 
-def analyze(alerts: dict, threats: dict) -> dict:
+# Повідомлення моніторингових каналів (NEPTUN /api/v1/messages): це текст людей, а не радар.
+CITY_TEXT = [
+    re.compile(r"(київ|києв|киев|kyiv|kiev)(?!щин|ськ|ск)", re.I),
+    re.compile(r"(львів|львов|lviv|lvov)(?!щин|ськ|ск)", re.I),
+]
+# Лише події, не прогнози: «курсом на», «загроза» сюди не входять.
+BOOM_RE = re.compile(r"вибух|взрыв|прил[іиі]т|детонац|прац\w*\s+ппо|робот\w*\s+ппо|работ\w*\s+пво", re.I)
+BOOM_WINDOW_S = 20 * 60
+STRATEGIC = [  # код, шаблон, підпис
+    ("o", re.compile(r"оре[шщ]н|орєшн|oreshnik", re.I), "загроза Орєшніка"),
+    ("k", re.compile(r"кин[дж]{1,2}ал|kinzhal", re.I), "загроза Кинджалів"),
+    ("t", re.compile(r"ту-?\s?(95|160|22)|стратегічн\w*\s+авіац|стратегическ\w*\s+авиац", re.I), "стратегічна авіація (Ту-95/160/22)"),
+    ("c", re.compile(r"калібр|калибр|kalibr", re.I), "загроза Калібрів"),
+]
+STRATEGIC_LABEL = {code: label for code, _, label in STRATEGIC}
+CANCEL_RE = re.compile(r"відбій|отбой|минул|скасов|відмін|отмен|приземл|посадк", re.I)
+STRATEGIC_WINDOW_S = 45 * 60
+DRONE_KMH = 150  # якщо NEPTUN не дав швидкості
+
+def scan_messages(messages, now):
+    """→ (вік останнього повідомлення про вибухи/ППО по містах у хв або -1, [[код, вік у хв], …])."""
+    items = []
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        t = parse_since(m.get("date"))
+        if t and now - t <= max(BOOM_WINDOW_S, STRATEGIC_WINDOW_S) and t <= now + 120:
+            items.append((t, str(m.get("text") or "")))
+    items.sort(reverse=True)  # найновіші спершу
+    booms = []
+    for city_re in CITY_TEXT:
+        hit = next((t for t, x in items if now - t <= BOOM_WINDOW_S and BOOM_RE.search(x) and city_re.search(x)), None)
+        booms.append(max(0, int((now - hit) // 60)) if hit else -1)
+    strat = []
+    for code, rx, _ in STRATEGIC:
+        last = next(((t, x) for t, x in items if now - t <= STRATEGIC_WINDOW_S and rx.search(x)), None)
+        if last and not CANCEL_RE.search(last[1]):  # найсвіжіша згадка — не «відбій»
+            strat.append([code, max(0, int((now - last[0]) // 60))])
+    return booms, strat
+
+def analyze(alerts: dict, threats: dict, messages=None, now=None) -> dict:
     """Стан для віджета, компактно (ліміт 1024 байти):
-    c: [[тривога 0/1, з (unix), шахеди курсом, з них поруч, ракети курсом, з них поруч, КАБи, балістика 0/1], …] — Київ, Львів
-    g: [шахеди по Україні, ракети, балістичні, МіГ-31К 0/1]"""
+    c: [[тривога 0/1, з (unix), шахеди курсом, з них поруч, ракети курсом, з них поруч, КАБи, балістика 0/1,
+         підліт найближчого шахеда у хв (-1 — немає, 0 — вже поруч), вибухи/ППО хв тому (-1 — немає)], …] — Київ, Львів
+    g: [шахеди по Україні, ракети, балістичні, МіГ-31К 0/1]
+    s: [[код, хв тому], …] — з каналів: o Орєшнік, k Кинджал, t стратегічна авіація, c Калібр"""
+    now = now or time.time()
     oblasts = alerts.get("oblasts") or []
     raions = alerts.get("raions") or []
     ts = [t for t in (threats.get("threats") or []) if isinstance(t, dict) and t.get("status") not in ("resolved", "stale")]
+    booms, strat = scan_messages(messages, now)
     g = [0, 0, 0, 0]
     for t in ts:
         k = KIND.get(t.get("type"))
@@ -131,9 +175,10 @@ def analyze(alerts: dict, threats: dict) -> dict:
         elif k == "ballistic":
             g[2] += size(t)
     cities = []
-    for city in CITIES:
+    for i, city in enumerate(CITIES):
         e = next((x for x in oblasts if city["alert"](x)), None) or next((x for x in raions if city["alert"](x)), None)
-        r = [1 if e else 0, parse_since(e.get("since")) if e else 0, 0, 0, 0, 0, 0, 0]
+        r = [1 if e else 0, parse_since(e.get("since")) if e else 0, 0, 0, 0, 0, 0, 0, -1, booms[i]]
+        etas = []
         for t in ts:
             if t.get("advisory"):
                 continue
@@ -147,6 +192,13 @@ def analyze(alerts: dict, threats: dict) -> dict:
             if k == "drone":
                 r[2] += n
                 r[3] += n if rel == "near" else 0
+                if rel == "near":
+                    etas.append(0)
+                elif rel == "toward":
+                    v = (t.get("velocity") or {}).get("speedKmh") if isinstance(t.get("velocity"), dict) else None
+                    kmh = v if isinstance(v, (int, float)) and 40 <= v <= 400 else DRONE_KMH
+                    d = max(0.0, dist_km(t["lat"], t["lon"], city["lat"], city["lon"]) - city["near"])
+                    etas.append(max(1, round(d / kmh * 60)))
             elif k == "missile":
                 r[4] += n
                 r[5] += n if rel == "near" else 0
@@ -154,18 +206,26 @@ def analyze(alerts: dict, threats: dict) -> dict:
                 r[6] += n
             elif k == "ballistic":
                 r[7] = 1
+        r[8] = min(etas) if etas else -1
         cities.append(r)
-    return {"c": cities, "g": g}
+    return {"c": cities, "g": g, "s": strat}
+
+def ago_txt(m):
+    return "щойно" if m <= 0 else f"{m} хв тому"
 
 def fmt_text(state: dict) -> str:
     """Текстова версія для клієнтів без віджетів."""
     lines = []
     for city, c in zip(CITIES, state["c"]):
-        a, since, d, dn, mi, mn, kab, bal = c
+        a, since, d, dn, mi, mn, kab, bal = c[:8]
+        eta = c[8] if len(c) > 8 else -1
+        boom = c[9] if len(c) > 9 else -1
         if a:
             mins = max(0, int((time.time() - since) / 60)) if since else 0
             lines.append(f"🔴 <b>{city['name']} — ТРИВОГА</b> ({mins} хв)")
             lines.append(f"   🛩 шахедів курсом: <b>{d}</b>" + (f" ({dn} поруч)" if dn else ""))
+            if eta > 0:
+                lines.append(f"   ⏱ найближчий шахед: ~<b>{eta} хв</b>")
             lines.append(f"   🚀 ракет курсом: <b>{mi}</b>" + (f" ({mn} поруч)" if mn else ""))
             if kab:
                 lines.append(f"   💣 КАБів: <b>{kab}</b>")
@@ -174,12 +234,18 @@ def fmt_text(state: dict) -> str:
         else:
             extra = []
             if d:
-                extra.append(f"{d} шахед. курсом")
+                extra.append(f"{d} шахед. курсом" + (f", ~{eta} хв" if eta > 0 else ", вже поруч" if eta == 0 else ""))
             if mi:
                 extra.append(f"{mi} ракет курсом")
             if bal:
                 extra.append("загроза балістики")
             lines.append(f"🟢 <b>{city['name']}</b> — тривоги немає" + (f" (але: {', '.join(extra)})" if extra else ""))
+        if boom >= 0:
+            lines.append(f"   💥 вибухи / ППО, {ago_txt(boom)} <i>(з каналів)</i>")
+        lines.append("")
+    strat = state.get("s") or []
+    if strat:
+        lines.append("⚠️ <b>З каналів:</b> " + ", ".join(f"{STRATEGIC_LABEL[c]} ({ago_txt(m)})" for c, m in strat))
         lines.append("")
     # Умови NEPTUN вимагають видиме посилання біля даних: воно в рядку «Оновлено».
     lines.append(f'<a href="https://neptun.in.ua/">Оновлено {time.strftime("%H:%M:%S", time.localtime(state["t"]))}</a>')
@@ -263,7 +329,7 @@ def main():
 
     def publish(state):
         nonlocal mode
-        pub = json.dumps({"r": state["r"], "t": state["t"], "c": state["c"], "g": state["g"]}, separators=(",", ":"))
+        pub = json.dumps({"r": state["r"], "t": state["t"], "c": state["c"], "g": state["g"], "s": state["s"]}, ensure_ascii=False, separators=(",", ":"))
         if mode != "text" and store.get("widget_id"):
             try:
                 bot("editSharedWidgetData", widget_id=store["widget_id"], public_data=pub, cache_time=10)
@@ -285,7 +351,7 @@ def main():
     def deliver(chat):
         """Надіслати віджет (або текст, якщо віджети недоступні) у чат і закріпити."""
         nonlocal mode
-        pub = json.dumps({"r": state["r"], "t": state["t"], "c": state["c"], "g": state["g"]}, separators=(",", ":")) if state else None
+        pub = json.dumps({"r": state["r"], "t": state["t"], "c": state["c"], "g": state["g"], "s": state["s"]}, ensure_ascii=False, separators=(",", ":")) if state else None
         msg = None
         if mode != "text":
             try:
@@ -326,7 +392,13 @@ def main():
             try:
                 a = http_json(f"{NEPTUN}/api/v1/alerts")
                 t = http_json(f"{NEPTUN}/api/v1/threats")
-                s = analyze(a, t)
+                try:
+                    msgs = http_json(f"{NEPTUN}/api/v1/messages")
+                    msgs = msgs.get("messages") if isinstance(msgs, dict) else msgs
+                except Exception as e:  # без каналів працюємо далі
+                    log("messages:", e)
+                    msgs = []
+                s = analyze(a, t, msgs, now)
                 key = json.dumps(s)
                 # Перепублікувати при зміні або раз на хвилину (щоб віджет знав, що дані свіжі).
                 if key != last_pub or not state or now - state["t"] >= 60:
