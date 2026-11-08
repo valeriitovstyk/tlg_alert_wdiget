@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
-"""Бот для Telegram-віджета «Тривога · Київ / Львів».
+"""Бот «Тривога · Київ / Львів»: одне закріплене повідомлення, яке тихо оновлюється.
 
-Раз на POLL_S секунд бере тривоги й цілі з NEPTUN (https://neptun.in.ua, без ключа),
-рахує стан для Києва й Львова і пише його в спільний (shared) віджет через
-editSharedWidgetData: одне оновлення, і віджет змінюється в усіх чатах, куди його надіслано.
-
-Якщо Bot API не знає sendWidget (віджети ще не вийшли публічно), бот сам переходить
-у текстовий режим: шле звичайне повідомлення й редагує його.
+Раз на POLL_S секунд бере тривоги, цілі й повідомлення моніторингових каналів з NEPTUN
+(https://neptun.in.ua, без ключа), рахує стан для Києва й Львова і редагує своє повідомлення
+в кожному чаті, де йому написали /start. Нових повідомлень не шле, сповіщень немає.
 
 Лише стандартна бібліотека Python 3.9+. Налаштування — змінні середовища:
   BOT_TOKEN   токен від @BotFather (обов'язково)
-  CHAT_IDS    через кому: чати, куди надіслати й закріпити віджет при старті (необов'язково;
-              будь-хто може написати боту /start і отримати віджет)
+  CHAT_IDS    через кому: чати, куди надіслати й закріпити повідомлення при старті (необов'язково;
+              будь-хто може написати боту /start)
   BOT_API     база Bot API, за замовчуванням https://api.telegram.org
-              (бета з віджетами: https://api.telegram.org/beta)
-  TEST_ENV    1 — тестове середовище Telegram (…/bot<token>/test/…)
-  MODE        auto (за замовчуванням) | widget | text
   POLL_S      як часто питати NEPTUN, с (за замовчуванням 15, мінімум 5)
   RUN_FOR_S   скільки працювати, с (0 — завжди; для GitHub Actions)
-  STATE_FILE  де тримати id віджета й повідомлень (за замовчуванням bot/state.json)
+  STATE_FILE  де тримати id повідомлень (за замовчуванням bot/state.json)
 """
 from __future__ import annotations
 
@@ -33,10 +27,9 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-WIDGET_HTML = (HERE.parent / "widget" / "widget.html").read_text(encoding="utf-8")
 
 NEPTUN = os.environ.get("NEPTUN_BASE", "https://neptun.in.ua").rstrip("/")
-UA = "tlg-alert-widget/1.0 (+https://github.com/valeriitovstyk/tlg_alert_wdiget)"
+UA = "tlg-alert-bot/1.0 (+https://github.com/valeriitovstyk/tlg_alert_wdiget)"
 ATTRIBUTION = "Дані: NEPTUN (neptun.in.ua) — агрегатор, не офіційне оповіщення."
 
 # ---------------------------------------------------------------- аналіз
@@ -213,38 +206,11 @@ def analyze(alerts: dict, threats: dict, messages=None, now=None) -> dict:
 def ago_txt(m):
     return "щойно" if m <= 0 else f"{m} хв тому"
 
-STRATEGIC_SHORT = {"o": "Орєшнік", "k": "Кинджал", "t": "Ту-95", "c": "Калібр"}
-
-def summary_line(state: dict) -> str:
-    """Напр.: «🔴 Київ 9🛩 ~23хв 🚀4 ⚠️ · 🟢 Львів (2🛩)»."""
-    parts = []
-    for city, c in zip(CITIES, state["c"]):
-        a, _, d, _, mi, _, _, bal = c[:8]
-        eta = c[8] if len(c) > 8 else -1
-        boom = c[9] if len(c) > 9 else -1
-        bits = []
-        if d:
-            bits.append(f"{d}🛩" + (f" ~{eta}хв" if eta > 0 else " поруч" if eta == 0 else ""))
-        if mi:
-            bits.append(f"🚀{mi}")
-        if bal:
-            bits.append("⚠️балістика")
-        if boom >= 0:
-            bits.append("💥")
-        if a:
-            parts.append(f"🔴 {city['name']}" + (" " + " ".join(bits) if bits else ""))
-        else:
-            parts.append(f"🟢 {city['name']}" + (f" ({' '.join(bits)})" if bits else ""))
-    line = " · ".join(parts)
-    strat = state.get("s") or []
-    if strat:
-        line += " · ⚠️" + ", ".join(STRATEGIC_SHORT[c] for c, _ in strat)
-    return f"<b>{line}</b>"
-
 def fmt_text(state: dict) -> str:
-    """Текстова версія для клієнтів без віджетів.
-    Перший рядок — короткий підсумок: його показують прев'ю чату й віджет «Чати» на Android."""
-    lines = [summary_line(state), ""]
+    """Текст закріпленого повідомлення. Перший рядок — час оновлення; він же посилання на NEPTUN
+    (їхні умови вимагають видиме посилання біля даних)."""
+    hhmm = time.strftime("%H:%M", time.localtime(state["t"]))
+    lines = [f'🕐 <a href="https://neptun.in.ua/"><b>{hhmm}</b></a>', ""]
     for city, c in zip(CITIES, state["c"]):
         a, since, d, dn, mi, mn, kab, bal = c[:8]
         eta = c[8] if len(c) > 8 else -1
@@ -276,8 +242,8 @@ def fmt_text(state: dict) -> str:
     if strat:
         lines.append("⚠️ <b>З каналів:</b> " + ", ".join(f"{STRATEGIC_LABEL[c]} ({ago_txt(m)})" for c, m in strat))
         lines.append("")
-    # Умови NEPTUN вимагають видиме посилання біля даних: воно в рядку «Оновлено».
-    lines.append(f'<a href="https://neptun.in.ua/">Оновлено {time.strftime("%H:%M:%S", time.localtime(state["t"]))}</a>')
+    while lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines)
 
 # ---------------------------------------------------------------- мережа
@@ -321,11 +287,6 @@ class Bot:
 def not_modified(e: Exception) -> bool:
     return "not modified" in str(e).lower()
 
-def unsupported(e: Exception) -> bool:
-    """Bot API без віджетів відповідає на невідомий метод 404 «Not Found»."""
-    s = str(e).lower()
-    return s.endswith(": not found") or s.endswith("http 404")
-
 # ---------------------------------------------------------------- головний цикл
 
 def log(*a):
@@ -334,13 +295,12 @@ def log(*a):
 def main():
     token = os.environ.get("BOT_TOKEN") or sys.exit("BOT_TOKEN не задано")
     bot = Bot(token, os.environ.get("BOT_API", "https://api.telegram.org"), os.environ.get("TEST_ENV") == "1")
-    mode = os.environ.get("MODE", "auto")
     poll_s = max(5, int(os.environ.get("POLL_S", "15")))
     run_for = int(os.environ.get("RUN_FOR_S", "0"))
     state_file = Path(os.environ.get("STATE_FILE", HERE / "state.json"))
     chat_ids = [c.strip() for c in os.environ.get("CHAT_IDS", "").split(",") if c.strip()]
 
-    store = {"widget_id": None, "texts": {}, "chats": []}
+    store = {"texts": {}, "chats": []}
     if state_file.exists():
         try:
             store.update(json.loads(state_file.read_text()))
@@ -357,14 +317,6 @@ def main():
     offset = None
 
     def publish(state):
-        nonlocal mode
-        pub = json.dumps({"r": state["r"], "t": state["t"], "c": state["c"], "g": state["g"], "s": state["s"]}, ensure_ascii=False, separators=(",", ":"))
-        if mode != "text" and store.get("widget_id"):
-            try:
-                bot("editSharedWidgetData", widget_id=store["widget_id"], public_data=pub, cache_time=10)
-            except TgError as e:
-                if not not_modified(e):
-                    log("віджет:", e)
         text = fmt_text(state)
         for chat, mid in list(store["texts"].items()):
             try:
@@ -378,40 +330,17 @@ def main():
                         save()
 
     def deliver(chat):
-        """Надіслати віджет (або текст, якщо віджети недоступні) у чат і закріпити."""
-        nonlocal mode
-        pub = json.dumps({"r": state["r"], "t": state["t"], "c": state["c"], "g": state["g"], "s": state["s"]}, ensure_ascii=False, separators=(",", ":")) if state else None
-        msg = None
-        if mode != "text":
-            try:
-                if store.get("widget_id"):
-                    msg = bot("sendSharedWidget", chat_id=chat, widget_id=store["widget_id"])
-                else:
-                    msg = bot("sendWidget", chat_id=chat, html=WIDGET_HTML, width=0, height=0, is_shared=True,
-                              **({"public_data": pub} if pub else {}))
-                    wid = (msg.get("widget") or {}).get("id")
-                    if wid:
-                        store["widget_id"] = wid
-                        save()
-                        log("створено спільний віджет", wid)
-            except TgError as e:
-                if mode == "auto" and unsupported(e):
-                    log("віджети недоступні на цьому Bot API, переходжу в текстовий режим:", e)
-                    mode = "text"
-                else:
-                    log("sendWidget", chat, e)
-        if msg is None and mode == "text":
-            msg = bot("sendMessage", chat_id=chat, text=fmt_text(state) if state else "Завантаження…",
-                      parse_mode="HTML", disable_web_page_preview=True)
-            store["texts"][str(chat)] = msg["message_id"]
-        if msg is not None:
-            if str(chat) not in store["chats"]:
-                store["chats"].append(str(chat))
-            save()
-            try:
-                bot("pinChatMessage", chat_id=chat, message_id=msg["message_id"], disable_notification=True)
-            except TgError as e:
-                log("pin", chat, e)
+        """Надіслати повідомлення в чат і закріпити (без звуку)."""
+        msg = bot("sendMessage", chat_id=chat, text=fmt_text(state) if state else "Завантаження…",
+                  parse_mode="HTML", disable_web_page_preview=True, disable_notification=True)
+        store["texts"][str(chat)] = msg["message_id"]
+        if str(chat) not in store["chats"]:
+            store["chats"].append(str(chat))
+        save()
+        try:
+            bot("pinChatMessage", chat_id=chat, message_id=msg["message_id"], disable_notification=True)
+        except TgError as e:
+            log("pin", chat, e)
 
     next_poll = 0.0
     while not run_for or time.time() - started < run_for:

@@ -28,8 +28,6 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_IDS: ${{ vars.CHAT_IDS }}
           BOT_API: ${{ vars.BOT_API || 'https://api.telegram.org' }}
-          TEST_ENV: ${{ vars.TEST_ENV }}
-          MODE: ${{ vars.MODE || 'auto' }}
           RUN_FOR_S: "21000"
           STATE_FILE: bot/state.json
           TZ: Europe/Kyiv
