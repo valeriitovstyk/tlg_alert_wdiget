@@ -1,10 +1,11 @@
 name: alert-bot
 
-# Бот працює безперервно: кожен запуск живе ~5 год 50 хв, а наступний (раз на 4 год)
-# стоїть у черзі й стартує одразу після попереднього.
+# Бот працює безперервно: кожен запуск живе ~5 год 50 хв і на старті сам ставить у чергу
+# наступний (workflow_dispatch), який стартує одразу після нього. Розклад GitHub ненадійний
+# (запізнюється й пропускає запуски), тому він лише запасний варіант на випадок збою.
 on:
   schedule:
-    - cron: "7 */4 * * *"
+    - cron: "17 */2 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -13,6 +14,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   run:
@@ -20,6 +22,10 @@ jobs:
     timeout-minutes: 358
     steps:
       - uses: actions/checkout@v4
+      - name: Queue next run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run bot.yml --ref main
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
