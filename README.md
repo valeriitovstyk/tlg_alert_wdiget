@@ -30,3 +30,12 @@
 4. Написати боту `/start` (або додати в групу й написати `/alert`).
 
 Дані: Карта повітряних тривог — NEPTUN (https://neptun.in.ua/). Це агрегатор, а не офіційна система оповіщення.
+
+## Android-віджет «Київ» (`android/`)
+
+Плашка одного кольору на робочому столі: 🔴 тривога в Києві, 🟡 тривоги нема, але шахеди чи ракети курсом на Київ, 🟢 спокійно, ⚪ бот давно не надсилав оновлень (45 хв).
+Бот шле тихий data-пуш через Firebase Cloud Messaging на тему `kyiv` (`bot/fcm.py`): високий пріоритет при зміні кольору, звичайний — підтвердження раз на 15 хв. Без сповіщень.
+
+- APK: https://github.com/valeriitovstyk/tlg_alert_wdiget/releases/download/apk/KyivAlert.apk (збирає `.github/workflows/android.yml`).
+- Секрети: `FCM_SERVICE_ACCOUNT` (JSON ключа сервісного акаунта Firebase), `ANDROID_KEYSTORE_B64` (ключ підпису APK).
+- `android/app/google-services.json` — конфіг Firebase для клієнта; він не секретний.
