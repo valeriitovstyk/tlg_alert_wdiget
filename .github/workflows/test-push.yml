@@ -1,0 +1,20 @@
+name: test-push
+
+# Перевірка віджета «Київ»: червоний → жовтий → зелений по 20 с, потім справжній колір.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q google-auth requests
+      - name: Test push
+        env:
+          FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
+          TZ: Europe/Kyiv
+        run: cd bot && python3 test_push.py
