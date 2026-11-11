@@ -4,7 +4,8 @@
 Високий пріоритет — лише коли колір змінився (щоб розбудити телефон у сні).
 Решта — звичайним пріоритетом при кожному оновленні тексту (раз на хвилину чи рідше): поки телефон спить,
 Android тримає лише останнє (collapse_key), тож батарея не страждає, а при відкритті застосунку текст свіжий.
-Якщо 15 хв нічого не надсилалось — підтвердження, інакше віджет вважає дані застарілими й сіріє.
+Раз на HEARTBEAT_S — підтвердження високим пріоритетом: звичайні пуші в глибокому сні Android притримує
+годинами, і віджет сірів би вночі. Інтервал іде в пуші («h»), застосунок сіріє після 2,5 інтервалу без пушів.
 
 Потрібен секрет FCM_SERVICE_ACCOUNT (JSON ключа сервісного акаунта Firebase)
 і пакет google-auth (pip install google-auth requests).
@@ -16,7 +17,7 @@ import time
 import urllib.request
 
 TOPIC = "kyiv"
-HEARTBEAT_S = 15 * 60
+HEARTBEAT_S = 30 * 60  # підтвердження «без змін» — високим пріоритетом, щоб будило телефон у Doze
 
 
 def kyiv_color(state: dict) -> str:
@@ -48,7 +49,7 @@ class Fcm:
         return self.creds.token
 
     def send(self, color: str, high: bool, text: str | None = None) -> bool:
-        data = {"k": color, "t": str(int(time.time()))}
+        data = {"k": color, "t": str(int(time.time())), "h": str(HEARTBEAT_S)}
         if text:
             data["x"] = text[:3000]  # ліміт FCM — 4 КБ на все повідомлення
         body = {"message": {
@@ -76,6 +77,10 @@ class Fcm:
             if self.send(color, high=True, text=text):
                 self.log("fcm: колір Києва →", color)
                 self.last_color, self.last_sent, self.last_text = color, now, text
-        elif (text and text != getattr(self, "last_text", None)) or now - self.last_sent >= HEARTBEAT_S:
-            if self.send(color, high=False, text=text):
+        elif now - self.last_sent >= HEARTBEAT_S:
+            if self.send(color, high=True, text=text):
                 self.last_sent, self.last_text = now, text
+        elif text and text != getattr(self, "last_text", None):
+            # Лише свіжий текст для екрана застосунку: звичайний пріоритет, не будить телефон.
+            if self.send(color, high=False, text=text):
+                self.last_text = text
