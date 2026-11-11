@@ -13,6 +13,7 @@
   POLL_S      як часто питати NEPTUN, с (за замовчуванням 15, мінімум 5)
   RUN_FOR_S   скільки працювати, с (0 — завжди; для GitHub Actions)
   STATE_FILE  де тримати id повідомлень (за замовчуванням bot/state.json)
+  FCM_SERVICE_ACCOUNT  JSON ключа сервісного акаунта Firebase — тихі пуші на Android-віджет «Київ» (bot/fcm.py)
 """
 from __future__ import annotations
 
@@ -313,6 +314,14 @@ def main():
     started = time.time()
     rev = int(time.time())  # ревізія росте завжди, навіть після перезапуску
     last_pub = None
+    fcm = None
+    if os.environ.get("FCM_SERVICE_ACCOUNT"):
+        try:
+            from fcm import Fcm
+            fcm = Fcm(os.environ["FCM_SERVICE_ACCOUNT"], log)
+            log("fcm: пуші на віджет увімкнені, проєкт", fcm.project)
+        except Exception as e:
+            log("fcm: не вдалося ввімкнути:", e)
     state = None
     offset = None
 
@@ -364,6 +373,8 @@ def main():
                     state = {**s, "r": rev, "t": int(now)}
                     publish(state)
                     last_pub = key
+                if fcm:
+                    fcm.update(s)
                     if chat_ids:
                         for c in chat_ids:
                             if c not in store["chats"]:
