@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "321910385254",
+    "project_id": "kyiv-alert-e553d",
+    "storage_bucket": "kyiv-alert-e553d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:321910385254:android:163f32326905a31e03dba7",
+        "android_client_info": {
+          "package_name": "ua.alert.kyiv"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTue5np1id_9_Mu_e7NsO-Qj_Q-jqE3QQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
