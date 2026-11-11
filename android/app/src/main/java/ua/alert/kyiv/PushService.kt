@@ -9,7 +9,7 @@ class PushService : FirebaseMessagingService() {
         val k = message.data["k"] ?: return
         if (k !in setOf("red", "yellow", "green")) return
         val t = message.data["t"]?.toLongOrNull()?.times(1000) ?: System.currentTimeMillis()
-        Status.save(this, k, t)
+        Status.save(this, k, t, message.data["x"])
         KyivWidget.updateAll(this)
     }
 

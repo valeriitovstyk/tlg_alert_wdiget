@@ -14,12 +14,17 @@ object Status {
     const val GREEN = 0xFF209C05.toInt()
     const val GREY = 0xFF6B6B6B.toInt()
 
-    fun save(ctx: Context, kind: String, sentAtMs: Long) {
+    fun save(ctx: Context, kind: String, sentAtMs: Long, text: String?) {
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         // Пуші можуть прийти не по порядку: старіший не перезаписує новіший.
         if (sentAtMs < p.getLong("t", 0)) return
-        p.edit().putString("k", kind).putLong("t", sentAtMs).putLong("rx", System.currentTimeMillis()).apply()
+        val e = p.edit().putString("k", kind).putLong("t", sentAtMs).putLong("rx", System.currentTimeMillis())
+        if (!text.isNullOrEmpty()) e.putString("x", text)
+        e.apply()
     }
+
+    /** Текст як у Telegram-повідомленні бота (HTML), або null. */
+    fun text(ctx: Context): String? = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("x", null)
 
     fun kind(ctx: Context): String? = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("k", null)
     fun sentAt(ctx: Context): Long = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("t", 0)

@@ -13,9 +13,16 @@ for color in ("red", "yellow", "green"):
 try:
     a = bot.http_json(f"{bot.NEPTUN}/api/v1/alerts")
     t = bot.http_json(f"{bot.NEPTUN}/api/v1/threats")
-    real = kyiv_color(bot.analyze(a, t))
+    try:
+        m = bot.http_json(f"{bot.NEPTUN}/api/v1/messages")
+        m = m.get("messages") if isinstance(m, dict) else m
+    except Exception:
+        m = []
+    st = {**bot.analyze(a, t, m), "t": int(time.time())}
+    real = kyiv_color(st)
+    text = bot.fmt_text(st)
 except Exception as e:
     bot.log("neptun:", e, "— лишаю сірий не можу, шлю жовтий як обережний варіант")
-    real = "yellow"
-ok = f.send(real, high=True)
+    real, text = "yellow", None
+ok = f.send(real, high=True, text=text)
 bot.log("тест завершено, справжній колір:", real, "надіслано" if ok else "ПОМИЛКА")

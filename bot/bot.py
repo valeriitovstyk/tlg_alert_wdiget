@@ -374,7 +374,7 @@ def main():
                     publish(state)
                     last_pub = key
                 if fcm:
-                    fcm.update(s)
+                    fcm.update(state, fmt_text(state))
                     if chat_ids:
                         for c in chat_ids:
                             if c not in store["chats"]:

@@ -1,9 +1,10 @@
 """Тихі пуші на Android-віджет «Київ» через Firebase Cloud Messaging (HTTP v1).
 
-Шлемо data-повідомлення на тему «kyiv»: {"k": "red|yellow|green", "t": unix}.
-Високий пріоритет — лише коли колір змінився (щоб розбудити телефон у сні);
-підтвердження «нічого не змінилось» — звичайним пріоритетом раз на 15 хв,
-інакше віджет вважає дані застарілими й сіріє.
+Шлемо data-повідомлення на тему «kyiv»: {"k": "red|yellow|green", "t": unix, "x": текст як у Telegram (HTML)}.
+Високий пріоритет — лише коли колір змінився (щоб розбудити телефон у сні).
+Решта — звичайним пріоритетом при кожному оновленні тексту (раз на хвилину чи рідше): поки телефон спить,
+Android тримає лише останнє (collapse_key), тож батарея не страждає, а при відкритті застосунку текст свіжий.
+Якщо 15 хв нічого не надсилалось — підтвердження, інакше віджет вважає дані застарілими й сіріє.
 
 Потрібен секрет FCM_SERVICE_ACCOUNT (JSON ключа сервісного акаунта Firebase)
 і пакет google-auth (pip install google-auth requests).
@@ -46,10 +47,13 @@ class Fcm:
             self.creds.refresh(Request())
         return self.creds.token
 
-    def send(self, color: str, high: bool) -> bool:
+    def send(self, color: str, high: bool, text: str | None = None) -> bool:
+        data = {"k": color, "t": str(int(time.time()))}
+        if text:
+            data["x"] = text[:3000]  # ліміт FCM — 4 КБ на все повідомлення
         body = {"message": {
             "topic": TOPIC,
-            "data": {"k": color, "t": str(int(time.time()))},
+            "data": data,
             "android": {"priority": "HIGH" if high else "NORMAL", "ttl": "900s", "collapse_key": TOPIC},
         }}
         req = urllib.request.Request(
@@ -65,13 +69,13 @@ class Fcm:
             self.log("fcm:", e, detail)
             return False
 
-    def update(self, state: dict) -> None:
+    def update(self, state: dict, text: str | None = None) -> None:
         color = kyiv_color(state)
         now = time.time()
         if color != self.last_color:
-            if self.send(color, high=True):
+            if self.send(color, high=True, text=text):
                 self.log("fcm: колір Києва →", color)
-                self.last_color, self.last_sent = color, now
-        elif now - self.last_sent >= HEARTBEAT_S:
-            if self.send(color, high=False):
-                self.last_sent = now
+                self.last_color, self.last_sent, self.last_text = color, now, text
+        elif (text and text != getattr(self, "last_text", None)) or now - self.last_sent >= HEARTBEAT_S:
+            if self.send(color, high=False, text=text):
+                self.last_sent, self.last_text = now, text
