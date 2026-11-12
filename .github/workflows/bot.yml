@@ -34,6 +34,7 @@ jobs:
       - name: Bot
         env:
           FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
+          ALERTS_IN_UA_TOKEN: ${{ secrets.ALERTS_IN_UA_TOKEN }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_IDS: ${{ vars.CHAT_IDS }}
           BOT_API: ${{ vars.BOT_API || 'https://api.telegram.org' }}

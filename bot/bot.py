@@ -13,6 +13,7 @@
   POLL_S      як часто питати NEPTUN, с (за замовчуванням 15, мінімум 5)
   RUN_FOR_S   скільки працювати, с (0 — завжди; для GitHub Actions)
   STATE_FILE  де тримати id повідомлень (за замовчуванням bot/state.json)
+  ALERTS_IN_UA_TOKEN   токен alerts.in.ua — тоді тривоги й офіційний рівень беруться звідти (інакше з NEPTUN)
   FCM_SERVICE_ACCOUNT  JSON ключа сервісного акаунта Firebase — тихі пуші на Android-віджет «Київ» (bot/fcm.py)
 """
 from __future__ import annotations
@@ -147,7 +148,8 @@ def scan_messages(messages, now):
 def analyze(alerts: dict, threats: dict, messages=None, now=None) -> dict:
     """Стан для віджета, компактно (ліміт 1024 байти):
     c: [[тривога 0/1, з (unix), шахеди курсом, з них поруч, ракети курсом, з них поруч, КАБи, балістика 0/1,
-         підліт найближчого шахеда у хв (-1 — немає, 0 — вже поруч), вибухи/ППО хв тому (-1 — немає)], …] — Київ, Львів
+         підліт найближчого шахеда у хв (-1 — немає, 0 — вже поруч), вибухи/ППО хв тому (-1 — немає),
+         офіційний рівень тривоги "red" | "yellow" | ""], …] — Київ, Львів
     g: [шахеди по Україні, ракети, балістичні, МіГ-31К 0/1]
     s: [[код, хв тому], …] — з каналів: o Орєшнік, k Кинджал, t стратегічна авіація, c Калібр"""
     now = now or time.time()
@@ -171,7 +173,10 @@ def analyze(alerts: dict, threats: dict, messages=None, now=None) -> dict:
     cities = []
     for i, city in enumerate(CITIES):
         e = next((x for x in oblasts if city["alert"](x)), None) or next((x for x in raions if city["alert"](x)), None)
-        r = [1 if e else 0, parse_since(e.get("since")) if e else 0, 0, 0, 0, 0, 0, 0, -1, booms[i]]
+        # Офіційний рівень: yellow — дронова небезпека, red — ракетна / масована. Невідомий рівень — як червоний.
+        lvl = (str(e.get("level") or "").lower() if e else "")
+        lvl = lvl if lvl in ("red", "yellow") else ("red" if e else "")
+        r = [1 if e else 0, parse_since(e.get("since")) if e else 0, 0, 0, 0, 0, 0, 0, -1, booms[i], lvl]
         etas = []
         for t in ts:
             if t.get("advisory"):
@@ -218,7 +223,9 @@ def fmt_text(state: dict) -> str:
         boom = c[9] if len(c) > 9 else -1
         if a:
             mins = max(0, int((time.time() - since) / 60)) if since else 0
-            lines.append(f"🔴 <b>{city['name']} — ТРИВОГА</b> ({mins} хв)")
+            lvl = c[10] if len(c) > 10 else "red"
+            icon, word = ("🟡", "жовтий рівень, дрони") if lvl == "yellow" else ("🔴", "червоний рівень")
+            lines.append(f"{icon} <b>{city['name']} — ТРИВОГА</b> ({word}, {mins} хв)")
             lines.append(f"   🛩 шахедів курсом: <b>{d}</b>" + (f" ({dn} поруч)" if dn else ""))
             if eta > 0:
                 lines.append(f"   ⏱ найближчий шахед: ~<b>{eta} хв</b>")
@@ -246,6 +253,27 @@ def fmt_text(state: dict) -> str:
     while lines and lines[-1] == "":
         lines.pop()
     return "\n".join(lines)
+
+# ---------------------------------------------------------------- alerts.in.ua
+
+ALERTS_IN_UA = "https://api.alerts.in.ua/v1/alerts/active.json"
+
+def alerts_in_ua(token: str) -> dict:
+    """Активні повітряні тривоги з alerts.in.ua у форматі NEPTUN /api/v1/alerts:
+    {"oblasts": [...], "raions": [...]} з key/name/oblast/since/level. Рівень — їхнє задокументоване alert_level."""
+    req = urllib.request.Request(ALERTS_IN_UA, headers={
+        "Authorization": f"Bearer {token}", "User-Agent": UA, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        body = json.loads(r.read().decode())
+    obl, ray = [], []
+    for a in body.get("alerts") or []:
+        if a.get("alert_type") != "air_raid" or a.get("finished_at"):
+            continue
+        item = {"key": norm(a.get("location_title")), "name": a.get("location_title") or "",
+                "oblast": a.get("location_oblast") or "", "since": a.get("started_at"),
+                "level": a.get("alert_level") or "red"}
+        (ray if a.get("location_type") in ("raion", "hromada") else obl).append(item)
+    return {"oblasts": obl, "raions": ray}
 
 # ---------------------------------------------------------------- мережа
 
@@ -314,6 +342,8 @@ def main():
     started = time.time()
     rev = int(time.time())  # ревізія росте завжди, навіть після перезапуску
     last_pub = None
+    aiu_token = os.environ.get("ALERTS_IN_UA_TOKEN", "").strip()
+    alerts_src = None
     fcm = None
     if os.environ.get("FCM_SERVICE_ACCOUNT"):
         try:
@@ -357,7 +387,21 @@ def main():
         if now >= next_poll:
             next_poll = now + poll_s
             try:
-                a = http_json(f"{NEPTUN}/api/v1/alerts")
+                a = None
+                if aiu_token:
+                    try:
+                        a = alerts_in_ua(aiu_token)
+                        if alerts_src != "alerts.in.ua":
+                            log("тривоги: джерело alerts.in.ua")
+                            alerts_src = "alerts.in.ua"
+                    except Exception as e:
+                        if alerts_src != "neptun":  # пишемо лише на початку збою, не щоразу
+                            log("alerts.in.ua:", e, "— беру тривоги з NEPTUN")
+                if a is None:
+                    a = http_json(f"{NEPTUN}/api/v1/alerts")
+                    if alerts_src != "neptun":
+                        log("тривоги: джерело NEPTUN")
+                        alerts_src = "neptun"
                 t = http_json(f"{NEPTUN}/api/v1/threats")
                 try:
                     msgs = http_json(f"{NEPTUN}/api/v1/messages")

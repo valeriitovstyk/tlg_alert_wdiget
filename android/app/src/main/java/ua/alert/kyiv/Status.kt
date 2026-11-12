@@ -3,7 +3,7 @@ package ua.alert.kyiv
 import android.content.Context
 import android.graphics.Color
 
-/** Стан Києва, який шле бот: red — тривога, yellow — шахеди/ракети курсом на Київ, green — спокійно. */
+/** Офіційний рівень тривоги в м. Київ, який шле бот: red — червоний, yellow — жовтий (дрони), green — тривоги немає. */
 object Status {
     private const val PREFS = "status"
     /** Бот шле підтвердження раз на «h» секунд (у пуші); без пушів 2,5 інтервалу — дані застаріли (сірий). */
@@ -44,9 +44,9 @@ object Status {
     }
 
     fun label(ctx: Context): String = if (isStale(ctx)) "немає свіжих даних" else when (kind(ctx)) {
-        "red" -> "тривога в Києві"
-        "yellow" -> "шахеди / ракети курсом на Київ"
-        "green" -> "спокійно"
+        "red" -> "тривога, червоний рівень"
+        "yellow" -> "тривога, жовтий рівень (дрони)"
+        "green" -> "тривоги немає"
         else -> "немає даних"
     }
 }

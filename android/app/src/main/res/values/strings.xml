@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">Київ</string>
     <string name="widget_name">Київ</string>
-    <string name="widget_desc">Колір: тривога, шахеди курсом, спокійно</string>
+    <string name="widget_desc">Колір — офіційний рівень тривоги в Києві</string>
 </resources>

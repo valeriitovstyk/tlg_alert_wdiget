@@ -21,13 +21,12 @@ HEARTBEAT_S = 30 * 60  # підтвердження «без змін» — ви
 
 
 def kyiv_color(state: dict) -> str:
-    """red — тривога в Києві; yellow — тривоги нема, але шахеди чи ракети курсом на Київ; green — спокійно."""
+    """Офіційний рівень тривоги в м. Київ: red / yellow; без тривоги — green."""
     c = state["c"][0]
-    if c[0]:
-        return "red"
-    if c[2] > 0 or c[4] > 0:
-        return "yellow"
-    return "green"
+    if not c[0]:
+        return "green"
+    lvl = c[10] if len(c) > 10 else "red"
+    return "yellow" if lvl == "yellow" else "red"
 
 
 class Fcm:
